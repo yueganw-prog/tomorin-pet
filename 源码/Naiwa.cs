@@ -946,7 +946,7 @@ namespace NaiwaDesktop
         {
             if(testing||HiddenForFullscreen||menuOpen)return;
             string text=PickLine();
-            if(!string.IsNullOrEmpty(text))ShowGreetingText(text,11);
+            if(!string.IsNullOrEmpty(text))ShowGreetingText(text,15);
         }
         internal void ShowGreeting()
         {
@@ -961,7 +961,7 @@ namespace NaiwaDesktop
             double now=Now;double dt=Math.Min(.05,Math.Max(0,now-lastTickNow));lastTickNow=now;
             if(now>=nextFullscreenCheck){nextFullscreenCheck=now+.12;CheckFullscreenWindow(foreground,false);}
             if(!testing&&now-minuteMark>=60){minuteMark=now;settings.Minutes+=1;if(now-lastMinutesSave>=300){lastMinutesSave=now;Save();}}
-            if(!testing&&settings.RandomTalk&&now-lastPop>=240&&!HiddenForFullscreen&&!menuOpen){lastPop=now;RandomPop();}
+            if(!testing&&settings.RandomTalk&&now-lastPop>=150&&!HiddenForFullscreen&&!menuOpen){lastPop=now;RandomPop();}
             // 一次性动作（跳舞/飞踢）播完自动回待机；唱歌无限循环不受此限
             if(Motion.ActionMode!=null&&Motion.ActionMode!="sing"&&now-Motion.ActionStart>=assets.ActionCount(Motion.ActionMode)/assets.ActionFps(Motion.ActionMode))StopAction();
             // 物理甩飞：推进窗口、处理反弹，其余状态暂停
