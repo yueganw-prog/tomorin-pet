@@ -680,11 +680,13 @@ namespace NaiwaDesktop
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
             TopMost=true;
             BackColor=Color.FromArgb(246,248,252);
-            Label label=new Label{Text=text,Dock=DockStyle.Fill,Font=new Font("Microsoft YaHei UI",10f),ForeColor=Color.FromArgb(50,54,66),TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(12,7,12,7)};
+            Label label=new Label{Text=text,Font=new Font("Microsoft YaHei UI",10f),ForeColor=Color.FromArgb(50,54,66),TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(12,8,12,8)};
+            const int maxW=240;
+            // 测量与渲染同源：用 Label 自身的 GetPreferredSize（含 Padding、真实断行），杜绝算短截字
+            Size pref=label.GetPreferredSize(new Size(maxW,0));
+            ClientSize=new Size(Math.Min(maxW,pref.Width)+8,pref.Height+8);
+            label.Dock=DockStyle.Fill;
             Controls.Add(label);
-            const int maxW=220;
-            Size ts=TextRenderer.MeasureText(text,label.Font,new Size(maxW,int.MaxValue),TextFormatFlags.WordBreak);
-            ClientSize=new Size(Math.Min(maxW,ts.Width)+30,ts.Height+12);
             Region=new Region(RoundedPath(ClientSize,10));
             life.Interval=seconds*1000;life.Tick+=delegate{Close();};life.Start();
             // 贴身摆放：右侧齐头 → 塞不下换左侧 → 再贴头顶
