@@ -7,6 +7,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Media;
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -728,7 +729,7 @@ namespace NaiwaDesktop
         private readonly Icon petIcon;
         private readonly ContextMenuStrip menu;
         private readonly NotifyIcon tray;
-    private ToolStripMenuItem soundItem,topItem,stopItem,fullscreenItem,singItem,randomItem;
+    private ToolStripMenuItem soundItem,topItem,stopItem,fullscreenItem,singItem,randomItem,autostartItem;
     private readonly SoundPlayer danceSound,jumpSound,hungrySound;
     private readonly Random rng=new Random();
     private double lastPop;
@@ -811,6 +812,7 @@ namespace NaiwaDesktop
             for(int i=0;i<values.Length;i++){int v=values[i];ToolStripMenuItem entry=new ToolStripMenuItem(labels[i],null,delegate{SetSize(v);});entry.Tag=v;sizes.DropDownItems.Add(entry);}result.Items.Add(sizes);
             topItem=new ToolStripMenuItem("总在最上面",null,delegate{TopMost=!TopMost;settings.OnTop=TopMost;Save();UpdateMenu();});result.Items.Add(topItem);
             fullscreenItem=new ToolStripMenuItem("全屏时自动隐藏",null,delegate{SetAutoHide(!settings.AutoHide);});result.Items.Add(fullscreenItem);
+            autostartItem=new ToolStripMenuItem("开机自启动",null,delegate{AutoStart=!AutoStart;UpdateMenu();});result.Items.Add(autostartItem);
             randomItem=new ToolStripMenuItem("随机说话",null,delegate{settings.RandomTalk=!settings.RandomTalk;Save();UpdateMenu();});result.Items.Add(randomItem);
             result.Items.Add("编辑台词",null,delegate{EnsureLines();Process.Start(new ProcessStartInfo(LinesPath){UseShellExecute=true});});
             result.Items.Add("回到屏幕右下角",null,delegate{ReturnHome();});
@@ -823,6 +825,7 @@ namespace NaiwaDesktop
             if(menu==null)return;SetToggleMark(soundItem,settings.Sound);soundItem.Enabled=sound!=null;SetToggleMark(topItem,TopMost);
             stopItem.Enabled=Motion.Playing||Motion.Resting||Motion.Acting;
             if(randomItem!=null)SetToggleMark(randomItem,settings.RandomTalk);
+            if(autostartItem!=null)SetToggleMark(autostartItem,AutoStart);
             SetToggleMark(fullscreenItem,settings.AutoHide);
             foreach(ToolStripItem entry in menu.Items){ToolStripMenuItem p=entry as ToolStripMenuItem;if(p==null)continue;foreach(ToolStripItem child in p.DropDownItems){ToolStripMenuItem c=child as ToolStripMenuItem;if(c!=null&&c.Tag is int)c.Checked=(int)c.Tag==settings.Scale;}}
         }
@@ -894,6 +897,14 @@ namespace NaiwaDesktop
             if(testing||HiddenForFullscreen)return;
             GreetingBubble bubble=new GreetingBubble(text,ContentRect(),seconds);
             bubble.Show(this);
+        }
+        // 开机自启动：HKCU Run 键，无需管理员权限
+        private const string RunKeyPath=@"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string RunValueName="tomorin-pet";
+        internal bool AutoStart
+        {
+            get{try{using(RegistryKey k=Registry.CurrentUser.OpenSubKey(RunKeyPath))return k!=null&&k.GetValue(RunValueName)!=null;}catch{return false;}}
+            set{try{using(RegistryKey k=Registry.CurrentUser.CreateSubKey(RunKeyPath)){if(value)k.SetValue(RunValueName,"\""+Application.ExecutablePath+"\"");else k.DeleteValue(RunValueName,false);}}catch{}}
         }
         // 企鹅本体在窗口中的实际位置（窗口上部是透明留白）
         private Rectangle ContentRect()
