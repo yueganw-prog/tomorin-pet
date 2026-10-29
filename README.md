@@ -5,17 +5,18 @@
 > 灵感与技术致敬：[yugh6/Naiwa](https://github.com/yugh6/Naiwa)（C# 桌宠基座）·
 > [Diyeego/naiwa-pet](https://github.com/Diyeego/naiwa-pet)（行为参考）
 
-## 🚀 快速开始（不用懂编程）
+## ⬇️ 下载桌宠（三步，不用懂编程）
 
-**如果你不懂编程，直接用打包好的 exe 就好：**
+### [👉 点这里下载 tomorin-pet-v1.0.zip](https://github.com/yueganw-prog/tomorin-pet/releases/latest/download/tomorin-pet-v1.0.zip)
 
-1. 到本页面的 **Releases**（右侧 Release 栏）下载最新的 `tomorin-pet-v1.0.zip`
+1. 下载上面的 zip（没反应的话：仓库右上角 **Releases** → 最新版本 → `tomorin-pet-v1.0.zip`）
 2. 解压到任意文件夹
 3. 双击 `凑企鹅桌宠.exe`——企鹅就会出现在屏幕右下角 🐧
 
+杀毒软件提示时选"允许 / 信任"即可（无签名小工具的正常待遇）。
+
 包内自带五首 AI 高松灯翻唱（billie jean / cry for me / just two of us / 雨爱 / L的小曲），
 每首都有专属演出画面。想换歌就把你的 mp3 / m4a 丢进 `music` 文件夹，重启桌宠即可。
-杀毒软件如果提示，添加信任放行（无签名的小工具都会这样）。
 
 ## 📖 全部玩法
 
@@ -47,6 +48,7 @@
 编辑台词：打开台词文件，每行一句，改完保存下一轮即生效
     占位符：{time}=当前时间 {hour}=小时 {minutes}=陪伴分钟数
     所有台词（启动问候/报时/随机）都只从这个文件取
+开机自启动：开机后企鹅自动出现（右键菜单可开关）
 退出凑企鹅
 
 ── 文件说明 ──
@@ -67,7 +69,7 @@ music/              歌曲文件夹（mp3/m4a/wav/flac/ogg），放入后重启�
 ```
 git clone https://github.com/你的用户名/tomorin-pet.git
 cd tomorin-pet/源码
-build.cmd        # 编译出 我的桌宠.exe（csc 编译，零依赖）
+build.cmd        # 编译出 exe（csc 编译，零依赖）
 ```
 
 素材流水线（改形象/加动作/换音效）：
