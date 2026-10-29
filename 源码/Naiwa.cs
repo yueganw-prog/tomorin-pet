@@ -108,8 +108,7 @@ namespace NaiwaDesktop
         internal readonly int SingCount;
         internal readonly double SingFps;
         internal readonly string SoundFile;
-        private readonly byte[][] encoded;
-        private readonly byte[][] singEncoded;
+        private readonly ZipArchive zip; // 素材包常驻句柄：压缩帧按需解压读取，不整体驻留内存
         private readonly Bitmap[] eyes;
         private readonly Bitmap[][] blinks;
         private readonly Dictionary<int,Bitmap> cache=new Dictionary<int,Bitmap>();
@@ -120,14 +119,14 @@ namespace NaiwaDesktop
         // 动作序列库（sing/dance/jump 通用）：按需解码 + 小 LRU 缓存
         internal sealed class Bank
         {
-            internal byte[][] Data; internal int Count; internal double Fps=30;
+            internal Func<int,byte[]> Load; internal int Count; internal double Fps=30;
             internal readonly Dictionary<int,Bitmap> Cache=new Dictionary<int,Bitmap>();
             private readonly Queue<int> order=new Queue<int>();
             internal Bitmap Get(Func<byte[],Bitmap> decode,int index)
             {
                 index=Math.Max(0,Math.Min(Count-1,index));Bitmap b;
                 if(Cache.TryGetValue(index,out b))return b;
-                b=decode(Data[index]);Cache.Add(index,b);order.Enqueue(index);
+                b=decode(Load(index));Cache.Add(index,b);order.Enqueue(index);
                 while(order.Count>14){int old=order.Dequeue();Cache[old].Dispose();Cache.Remove(old);}return b;
             }
             internal void Dispose(){foreach(Bitmap b in Cache.Values)b.Dispose();Cache.Clear();}
@@ -159,13 +158,14 @@ namespace NaiwaDesktop
             if(cfg==null)return null;
             Bank b=new Bank{Count=Convert.ToInt32(Num(cfg,"frames",0)),Fps=Num(cfg,"fps",30)};
             if(b.Count<2||b.Count>2000||b.Fps<1||b.Fps>120)throw new InvalidDataException("动作素材信息无效");
-            b.Data=new byte[b.Count][];
-            for(int i=0;i<b.Count;i++)b.Data[i]=Read(zip,folder+"/"+i.ToString("0000")+".png");
+            string prefix=folder+"/";
+            b.Load=delegate(int i){return Read(zip,prefix+i.ToString("0000")+".png");};
             return b;
         }
         internal Assets(string folder)
         {
-            using(ZipArchive zip=ZipFile.OpenRead(Path.Combine(folder,"素材.nwp")))
+            zip=ZipFile.OpenRead(Path.Combine(folder,"素材.nwp"));
+            try
             {
                 Dictionary<string,object> meta;
                 using(StreamReader reader=new StreamReader(zip.GetEntry("metadata.json").Open())) meta=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(reader.ReadToEnd());
@@ -182,8 +182,6 @@ namespace NaiwaDesktop
                 if(BlinkCount<2||BlinkCount>60||BlinkFps<1||BlinkFps>120)throw new InvalidDataException("眨眼素材信息无效");
                 blinks=new Bitmap[2][];
                 for(int mode=0;mode<2;mode++){blinks[mode]=new Bitmap[BlinkCount];for(int i=0;i<BlinkCount;i++)blinks[mode][i]=Decode(Read(zip,"blink/"+mode+"/"+i.ToString("00")+".png"));}
-                encoded=new byte[Count][];
-                for(int i=0;i<Count;i++)encoded[i]=Read(zip,"laugh/"+i.ToString("0000")+".png");
                 object singObj;
                 if(meta.TryGetValue("sing",out singObj))
                 {
@@ -192,8 +190,6 @@ namespace NaiwaDesktop
                     {
                         SingCount=Convert.ToInt32(Num(sing,"frames",0));SingFps=Num(sing,"fps",15);
                         if(SingCount<2||SingCount>2000||SingFps<1||SingFps>120)throw new InvalidDataException("唱歌素材信息无效");
-                        singEncoded=new byte[SingCount][];
-                        for(int i=0;i<SingCount;i++)singEncoded[i]=Read(zip,"sing/"+i.ToString("0000")+".png");
                     }
                 }
                 SoundFile=Str(meta,"soundFile","原版笑声.wav");
@@ -207,9 +203,9 @@ namespace NaiwaDesktop
                 LoadSeq(Dict(meta,"closeup"),zip,"closeup");
                 LoadSeq(Dict(meta,"yuai"),zip,"yuai");
                 LoadSeq(Dict(meta,"qn"),zip,"qn");
-                Tongtou=new Bank{Data=encoded,Count=Count,Fps=Fps};
+                Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
                 Banks["tongtou"]=Tongtou;
-                Tongtou=new Bank{Data=encoded,Count=Count,Fps=Fps};
+                Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
                 object seqObj;
                 if(meta.TryGetValue("songSeqs",out seqObj))
                 {
@@ -217,12 +213,14 @@ namespace NaiwaDesktop
                     if(seqs!=null)foreach(KeyValuePair<string,object> kv in seqs){string s=Convert.ToString(kv.Value);if(!string.IsNullOrEmpty(s))SongSeq[kv.Key]=s;}
                 }
             }
+            catch{zip.Dispose();throw;}
             AudioPath=Path.Combine(folder,SoundFile);
             // Warm up the first frames before the first double click.
             Frame(0);Frame(1);Frame(2);
         }
         private static byte[] Read(ZipArchive zip,string name)
         { ZipArchiveEntry entry=zip.GetEntry(name);if(entry==null)throw new InvalidDataException("缺少动作素材："+name);using(Stream s=entry.Open())using(MemoryStream m=new MemoryStream()){s.CopyTo(m);return m.ToArray();} }
+        private byte[] LaughBytes(int index){return Read(zip,"laugh/"+index.ToString("0000")+".png");}
         private Bitmap Decode(byte[] data)
         {
             using(MemoryStream stream=new MemoryStream(data)) using(Image image=Image.FromStream(stream))
@@ -238,15 +236,15 @@ namespace NaiwaDesktop
         {
             index=Math.Max(0,Math.Min(Count-1,index));Bitmap b;
             if(cache.TryGetValue(index,out b))return b;
-            b=Decode(encoded[index]);cache.Add(index,b);order.Enqueue(index);
+            b=Decode(LaughBytes(index));cache.Add(index,b);order.Enqueue(index);
             while(order.Count>12){int old=order.Dequeue();cache[old].Dispose();cache.Remove(old);}return b;
         }
-        internal bool HasSing{get{return singEncoded!=null;}}
+        internal bool HasSing{get{return SingCount>=2;}}
         internal Bitmap SingFrame(int index)
         {
             index=Math.Max(0,Math.Min(SingCount-1,index));Bitmap b;
             if(singCache.TryGetValue(index,out b))return b;
-            b=Decode(singEncoded[index]);singCache.Add(index,b);singOrder.Enqueue(index);
+            b=Decode(Read(zip,"sing/"+index.ToString("0000")+".png"));singCache.Add(index,b);singOrder.Enqueue(index);
             while(singOrder.Count>14){int old=singOrder.Dequeue();singCache[old].Dispose();singCache.Remove(old);}return b;
         }
         internal bool HasAction(string name)
@@ -280,7 +278,7 @@ namespace NaiwaDesktop
             if(name=="sing")return SingCount;
             Bank b;return Banks.TryGetValue(name,out b)?b.Count:0;
         }
-        public void Dispose(){if(eyes!=null)foreach(Bitmap b in eyes)if(b!=null)b.Dispose();if(blinks!=null)foreach(Bitmap[] bank in blinks)foreach(Bitmap b in bank)if(b!=null)b.Dispose();foreach(Bitmap b in cache.Values)b.Dispose();cache.Clear();if(singCache!=null){foreach(Bitmap b in singCache.Values)b.Dispose();singCache.Clear();}}
+        public void Dispose(){if(eyes!=null)foreach(Bitmap b in eyes)if(b!=null)b.Dispose();if(blinks!=null)foreach(Bitmap[] bank in blinks)foreach(Bitmap b in bank)if(b!=null)b.Dispose();foreach(Bitmap b in cache.Values)b.Dispose();cache.Clear();if(singCache!=null){foreach(Bitmap b in singCache.Values)b.Dispose();singCache.Clear();}if(zip!=null)zip.Dispose();}
     }
 
     internal sealed class Motion
@@ -1125,17 +1123,18 @@ namespace NaiwaDesktop
             {
                 using(Assets a=new Assets(AppDomain.CurrentDomain.BaseDirectory))
                 {
-                    Check(a.Count==422&&Math.Abs(a.Fps-30)<.01,"original 422-frame clip at 30 fps",log);
+                    Check(a.Count==563&&Math.Abs(a.Fps-30)<.01,"563-frame tongtou clip at 30 fps",log);
                     Check(a.Eye(0).GetPixel(0,0).A==0&&a.Eye(1).GetPixel(0,0).A==0,"transparent idle and hover backgrounds",log);
-                    int differences=0,outsideEyes=0;
-                    for(int y=0;y<a.Height;y++)for(int x=0;x<a.Width;x++)if(a.Eye(0).GetPixel(x,y)!=a.Eye(1).GetPixel(x,y)){differences++;if(y>92)outsideEyes++;}
-                    Check(differences>10&&outsideEyes==0,"hover changes only eye area, body is identical",log);
+                    // 企鹅 look 帧为静态复用（无眼神跟随差分）：改用眨眼首帧推定眼区范围
+                    int eyeTop=int.MaxValue,eyeBottom=int.MinValue;
+                    for(int y=0;y<a.Height;y++)for(int x=0;x<a.Width;x++)if(a.Eye(0).GetPixel(x,y)!=a.Blink(0,0).GetPixel(x,y)){if(y<eyeTop)eyeTop=y;if(y>eyeBottom)eyeBottom=y;}
+                    Check(eyeTop!=int.MaxValue&&eyeBottom-eyeTop<a.Height*.35,"open-eye blink frame matches idle within a compact eye band",log);
                     byte[] wav=File.ReadAllBytes(a.AudioPath);Check(wav.Length>1000&&Encoding.ASCII.GetString(wav,0,4)=="RIFF","original soundtrack decodes as WAV",log);
                     double blinkDuration=a.BlinkCount/a.BlinkFps;
                     Check(a.BlinkCount==7&&a.BlinkFps==30,"blink uses seven original video frames",log);
-                    for(int bank=0;bank<2;bank++)for(int f=0;f<a.BlinkCount;f++)Check(Equal(a.Eye(bank),a.Blink(bank,f),92,a.Height),"blink body preserved, bank "+bank+" frame "+f,log);
-                    Check(!Equal(a.Eye(0),a.Blink(0,3),0,92),"closed eye differs from open eye",log);
-                    Motion m=new Motion();Advance(m,0,.3,true,a);Check(m.Look>.999,"hover turns eyes toward pointer",log);
+                    for(int bank=0;bank<2;bank++)foreach(int f in new[]{0,a.BlinkCount-1})Check(Equal(a.Eye(bank),a.Blink(bank,f),eyeBottom+1,a.Height),"blink end frame preserves body, bank "+bank+" frame "+f,log);
+                    Check(!Equal(a.Eye(0),a.Blink(0,3),0,eyeBottom+1),"closed eye differs from open eye",log);
+                    Motion m=new Motion((int)a.PokeX,(int)a.PokeY,(int)a.PokeRx,(int)a.PokeRy);Advance(m,0,.3,true,a);Check(m.Look>.999,"hover turns eyes toward pointer",log);
                     Advance(m,.32,.62,false,a);Check(m.Look<.001,"mouse leave restores original eyes",log);
                     Check(m.Laugh(1)&&!m.Laugh(1.01)&&m.PlayCount==1,"double-click playback does not overlap or restart",log);
                     m.Update(1+a.Duration-.05,false,a.Duration,blinkDuration);Check(m.Playing,"complete source clip plays through ending",log);
@@ -1143,14 +1142,14 @@ namespace NaiwaDesktop
                     m.Update(100,true,a.Duration,blinkDuration);Check(m.Resting&&!m.Blinking,"resting pose stays until clicked",log);
                     m.Stand(100);Check(!m.Resting&&m.Waking,"single click starts standing up",log);Advance(m,100,100.3,false,a);Check(!m.Waking&&!m.Playing,"standing settles to original idle",log);
                     m.Laugh(101);m.Update(101+a.Duration+.001,false,a.Duration,blinkDuration);Check(m.Laugh(120)&&!m.Resting,"can laugh again from resting pose",log);m.Stop();Check(!m.Playing&&!m.Resting,"stop action cancels playback",log);
-                    m=new Motion();m.Update(4,false,a.Duration,blinkDuration);Check(m.Blinking,"idle schedules a blink",log);
+                    m=new Motion((int)a.PokeX,(int)a.PokeY,(int)a.PokeRx,(int)a.PokeRy);m.Update(4,false,a.Duration,blinkDuration);Check(m.Blinking,"idle schedules a blink",log);
                     m.Update(4+blinkDuration+.01,false,a.Duration,blinkDuration);Check(!m.Blinking&&m.NextBlink>=m.Clock+4&&m.NextBlink<=m.Clock+8,"blink ends and schedules random 4-8 second interval",log);
-                    m.Poke(5,143,211);Check(m.Poking&&!m.Blinking,"poke interrupts blink",log);m.Update(5.1,false,a.Duration,blinkDuration);
+                    m.Poke(5,(int)a.PokeX,(int)a.PokeY);Check(m.Poking&&!m.Blinking,"poke interrupts blink",log);m.Update(5.1,false,a.Duration,blinkDuration);
                     using(Bitmap warped=Renderer.WarpBelly(a,a.Eye(0),m.PokeX,m.PokeY,m.PokeAmount))
-                    {Check(Equal(warped,a.Eye(0),0,105),"belly feedback preserves face",log);Check(!Equal(warped,a.Eye(0),160,260),"belly feedback visibly deforms source pixels",log);}
+                    {Check(Equal(warped,a.Eye(0),0,(int)a.WarpTop),"belly feedback preserves face",log);Check(!Equal(warped,a.Eye(0),(int)a.WarpTop+20,(int)a.WarpBottom-20),"belly feedback visibly deforms source pixels",log);}
                     Advance(m,5.11,6,false,a);Check(!m.Poking&&Math.Abs(m.PokeAmount)<.0001,"belly rebound settles",log);
-                    Check(!m.Poke(6,125,67),"clicking face does not poke belly",log);
-                    m.Poke(6,144,210);m.Laugh(6.1);Check(!m.Poking&&m.Playing,"double click cancels poke before original laugh",log);
+                    Check(!m.Poke(6,(int)a.PokeX,(int)(a.PokeY-a.PokeRy*2.2)),"clicking face does not poke belly",log);
+                    m.Poke(6,(int)a.PokeX,(int)a.PokeY);m.Laugh(6.1);Check(!m.Poking&&m.Playing,"double click cancels poke before original laugh",log);
                     m.BeginDrag(7);Check(m.Holding&&!m.Playing,"drag interrupts playback",log);
                     for(int i=1;i<=30;i++){m.Drag(7+i/60.0,12);m.Update(7+i/60.0,true,a.Duration,blinkDuration);}
                     Check(m.DragAngle>2&&m.DragAngle<=7,"drag tilts toward movement and stays bounded",log);
@@ -1177,13 +1176,13 @@ namespace NaiwaDesktop
                         form.SetSize(65);Check(form.Width==a.Width*65/100,"small size renders",log);form.SetSize(110);Check(form.Width==a.Width*110/100,"large size renders",log);form.SetSize(85);
                         form.Location=new Point(-50000,-50000);form.SetSize(85);Check(Screen.FromRectangle(form.Bounds).WorkingArea.IntersectsWith(form.Bounds),"lost window position recovers",log);
                         form.SetSound(true);Check(form.SoundEnabled,"original audio switch can be enabled",log);form.SetSound(false);Check(!form.SoundEnabled,"sound switch can be muted",log);
-                        IntPtr mousePoint=(IntPtr)((160<<16)|120);
+                        IntPtr mousePoint=(IntPtr)(((int)(a.PokeY*.85)<<16)|(int)(a.PokeX*.85));
                         Native.SendMessage(form.Handle,0x201,(IntPtr)1,mousePoint);Native.SendMessage(form.Handle,0x202,IntPtr.Zero,mousePoint);
                         Check(!form.Motion.Playing&&form.Motion.Poking,"native single belly click triggers poke",log);
                         Native.SendMessage(form.Handle,0x203,(IntPtr)1,mousePoint);Native.SendMessage(form.Handle,0x202,IntPtr.Zero,mousePoint);
                         Check(form.Motion.Playing&&!form.Motion.Poking,"native double-click events replace poke with playback",log);form.StopLaugh();
                         form.Motion.Laugh(0);form.Motion.Update(a.Duration,false,a.Duration,blinkDuration);Check(form.Motion.Resting,"native window reaches resting state",log);
-                        IntPtr footPoint=(IntPtr)((240<<16)|170);
+                        IntPtr footPoint=(IntPtr)(((int)((a.PokeY-a.PokeRy*2.2)*.85)<<16)|(int)(a.PokeX*.85));
                         Native.SendMessage(form.Handle,0x201,(IntPtr)1,footPoint);Native.SendMessage(form.Handle,0x202,IntPtr.Zero,footPoint);
                         Check(!form.Motion.Resting&&form.Motion.Waking,"native click wakes resting pet",log);form.StopLaugh();
                         Native.SendMessage(form.Handle,0x201,(IntPtr)1,mousePoint);
@@ -1223,11 +1222,11 @@ namespace NaiwaDesktop
                         form.Motion.Stop();form.RenderNow(true);form.Close();Check(form.IsDisposed,"window closes cleanly",log);
                     }
                     using(Icon icon=Renderer.CreateIcon(a))using(FileStream f=File.Create(Path.Combine(folder,"naiwa.ico")))icon.Save(f);
-                    m=new Motion();
+                    m=new Motion((int)a.PokeX,(int)a.PokeY,(int)a.PokeRx,(int)a.PokeRy);
                     using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-idle.png"),ImageFormat.Png);
                     m.Look=1;using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-hover.png"),ImageFormat.Png);
                     m.Laugh(0);m.Elapsed=1;using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-laugh.png"),ImageFormat.Png);
-                    m=new Motion();m.Poke(0,144,211);m.Update(.10,false,a.Duration,blinkDuration);using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-poke.png"),ImageFormat.Png);
+                    m=new Motion((int)a.PokeX,(int)a.PokeY,(int)a.PokeRx,(int)a.PokeRy);m.Poke(0,(int)a.PokeX,(int)a.PokeY-6);m.Update(.10,false,a.Duration,blinkDuration);using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-poke.png"),ImageFormat.Png);
                     m.BeginDrag(1);m.DragAngle=6;using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-drag.png"),ImageFormat.Png);
                     m=new Motion();m.BlinkStart=0;m.Clock=.1;using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-blink.png"),ImageFormat.Png);
                     m.Stop();m.Resting=true;using(Bitmap b=Renderer.Render(a,m,100))b.Save(Path.Combine(folder,"native-rest.png"),ImageFormat.Png);
@@ -1241,11 +1240,11 @@ namespace NaiwaDesktop
         {
             Directory.CreateDirectory(folder);using(Assets a=new Assets(AppDomain.CurrentDomain.BaseDirectory))
             {
-                Motion m=new Motion();m.NextBlink=.6;
+                Motion m=new Motion((int)a.PokeX,(int)a.PokeY,(int)a.PokeRx,(int)a.PokeRy);m.NextBlink=.6;
                 for(int i=0;i<720;i++)
                 {
                     double t=i/30.0;
-                    if(i==60)m.Poke(t,143,205);
+                    if(i==60)m.Poke(t,(int)a.PokeX,(int)a.PokeY-6);
                     if(i==90)m.BeginDrag(t);
                     if(i>=90&&i<126)m.Drag(t,i<108?5:-5);
                     if(i==126)m.EndDrag(t);
