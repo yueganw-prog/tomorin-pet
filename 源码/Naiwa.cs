@@ -133,6 +133,7 @@ namespace NaiwaDesktop
         }
         internal readonly Dictionary<string,Bank> Banks=new Dictionary<string,Bank>(StringComparer.OrdinalIgnoreCase);
         internal Bank Tongtou; // 通透片段复用为唱歌视觉（与 laugh 共享帧数据，零拷贝）
+        internal Bank IdleLoop; // 动态待机：idleSeq 指定的循环序列（速度与原视频一致）
         internal readonly RectangleF IdleRect=new RectangleF(0.27f,0.54f,0.46f,0.46f); // 站立企鹅在画布中的占比区（气泡锚点用）
         internal readonly Dictionary<string,string> SongSeq=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); // 歌曲文件名→动作序列
         internal string CurrentSongFile;
@@ -206,6 +207,9 @@ namespace NaiwaDesktop
                 LoadSeq(Dict(meta,"yuai"),zip,"yuai");
                 LoadSeq(Dict(meta,"qn"),zip,"qn");
                 LoadSeq(Dict(meta,"pyj"),zip,"pyj");
+                string idleSeq=Str(meta,"idleSeq","");
+                if(idleSeq=="laugh")IdleLoop=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
+                else if(idleSeq=="sing"&&HasSing)IdleLoop=new Bank{Load=delegate(int i){return Read(zip,"sing/"+i.ToString("0000")+".png");},Count=SingCount,Fps=SingFps};
                 Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
                 Banks["tongtou"]=Tongtou;
                 Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
@@ -224,7 +228,7 @@ namespace NaiwaDesktop
         private static byte[] Read(ZipArchive zip,string name)
         { ZipArchiveEntry entry=zip.GetEntry(name);if(entry==null)throw new InvalidDataException("缺少动作素材："+name);using(Stream s=entry.Open())using(MemoryStream m=new MemoryStream()){s.CopyTo(m);return m.ToArray();} }
         private byte[] LaughBytes(int index){return Read(zip,"laugh/"+index.ToString("0000")+".png");}
-        private Bitmap Decode(byte[] data)
+        internal Bitmap Decode(byte[] data)
         {
             using(MemoryStream stream=new MemoryStream(data)) using(Image image=Image.FromStream(stream))
             {
@@ -510,16 +514,24 @@ namespace NaiwaDesktop
                 else if(m.Acting)Draw(g,assets.ActionFrame(m.ActionMode,(int)((m.Clock-m.ActionStart)*assets.ActionFps(m.ActionMode))%assets.ActionCount(m.ActionMode)),rect,1);
                 else if(!m.Playing)
                 {
-                    // Idle micro-life: float bob + gentle bottom-anchored breathing.
-                    bool idleLife=!m.Moving&&!m.Flinging;
-                    float bob=idleLife?(float)(6*Math.Sin(m.Clock*2*Math.PI/2.36)):0f;
-                    float br=idleLife?1f+0.006f*(float)Math.Sin(m.Clock*2*Math.PI/3.2):1f;
-                    g.TranslateTransform(0,bob);
-                    g.TranslateTransform(w*.5f,h*.98f);g.ScaleTransform(1f,br);g.TranslateTransform(-w*.5f,-h*.98f);
-                    Bitmap idle=m.Blinking?assets.Blink(m.Look,(int)((m.Clock-m.BlinkStart)*assets.BlinkFps)):assets.Eye(m.Look);
-                    if(m.Poking)using(Bitmap poke=WarpBelly(assets,idle,m.PokeX,m.PokeY,m.PokeAmount))Draw(g,poke,rect,1);else Draw(g,idle,rect,1);
-                    g.TranslateTransform(w*.5f,h*.98f);g.ScaleTransform(1f,1f/br);g.TranslateTransform(-w*.5f,-h*.98f);
-                    g.TranslateTransform(0,-bob);
+                    if(assets.IdleLoop!=null)
+                    {
+                        // 动态待机：循环播放真实动作序列（速度与原视频一致）
+                        Draw(g,assets.IdleLoop.Get(assets.Decode,(int)(m.Clock*assets.IdleLoop.Fps)%assets.IdleLoop.Count),rect,1);
+                    }
+                    else
+                    {
+                        // Idle micro-life: float bob + gentle bottom-anchored breathing.
+                        bool idleLife=!m.Moving&&!m.Flinging;
+                        float bob=idleLife?(float)(6*Math.Sin(m.Clock*2*Math.PI/2.36)):0f;
+                        float br=idleLife?1f+0.006f*(float)Math.Sin(m.Clock*2*Math.PI/3.2):1f;
+                        g.TranslateTransform(0,bob);
+                        g.TranslateTransform(w*.5f,h*.98f);g.ScaleTransform(1f,br);g.TranslateTransform(-w*.5f,-h*.98f);
+                        Bitmap idle=m.Blinking?assets.Blink(m.Look,(int)((m.Clock-m.BlinkStart)*assets.BlinkFps)):assets.Eye(m.Look);
+                        if(m.Poking)using(Bitmap poke=WarpBelly(assets,idle,m.PokeX,m.PokeY,m.PokeAmount))Draw(g,poke,rect,1);else Draw(g,idle,rect,1);
+                        g.TranslateTransform(w*.5f,h*.98f);g.ScaleTransform(1f,1f/br);g.TranslateTransform(-w*.5f,-h*.98f);
+                        g.TranslateTransform(0,-bob);
+                    }
                 }
                 else if(m.Elapsed<.10){Draw(g,assets.Eye(m.Look),rect,1);Draw(g,assets.Frame((int)(m.Elapsed*assets.Fps)),rect,(float)(m.Elapsed/.10));}
                 else Draw(g,assets.Frame((int)(m.Elapsed*assets.Fps)),rect,1);
@@ -1080,7 +1092,7 @@ namespace NaiwaDesktop
             string key=Motion.Resting?"R":Motion.Playing?"L"+(int)(Motion.Elapsed*assets.Fps):Motion.Acting?"A"+assets.SeqFor(Motion.ActionMode)+((int)((Motion.Clock-Motion.ActionStart)*assets.ActionFps(Motion.ActionMode))%assets.ActionCount(Motion.ActionMode)):Motion.Blinking?"B"+(Motion.Look>.5?1:0)+"/"+(int)((Motion.Clock-Motion.BlinkStart)*assets.BlinkFps):"E"+(int)Math.Round(Motion.Look*(assets.EyeCount-1));
             if(Motion.Poking||Motion.Moving||Motion.Waking)key+="/M"+(int)(Motion.Clock*60);
             // Idle micro-life: re-render at 24fps so float bob + breathing actually animate.
-            if(!Motion.Resting&&!Motion.Playing&&!Motion.Acting&&!Motion.Poking&&!Motion.Moving)key+="/F"+(int)(Motion.Clock*24);
+            if(!Motion.Resting&&!Motion.Playing&&!Motion.Acting&&!Motion.Poking&&!Motion.Moving)key+="/F"+(int)(Motion.Clock*(assets.IdleLoop!=null?assets.IdleLoop.Fps:24));
             key+="/"+settings.Scale;
             if(!force&&key==lastVisual)return;
             using(Bitmap frame=Renderer.Render(assets,Motion,settings.Scale))surface.Update(Handle,frame,Location);
