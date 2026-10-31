@@ -203,6 +203,7 @@ namespace NaiwaDesktop
                 LoadSeq(Dict(meta,"closeup"),zip,"closeup");
                 LoadSeq(Dict(meta,"yuai"),zip,"yuai");
                 LoadSeq(Dict(meta,"qn"),zip,"qn");
+                LoadSeq(Dict(meta,"pyj"),zip,"pyj");
                 Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};
                 Banks["tongtou"]=Tongtou;
                 Tongtou=new Bank{Load=LaughBytes,Count=Count,Fps=Fps};

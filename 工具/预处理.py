@@ -163,7 +163,7 @@ def compose_idle_frame(src):
     return canvas
 
 
-def stage_actions():
+def stage_actions(only=None):
     """绿幕动作视频（跳舞/飞踢）→ 色键抠图 → union bbox 统一映射（贴底，保留位移轨迹）"""
     def thin_line_removal(im, radius=6):
         """色键后处理：形态学开运算去掉细于 2*radius 的黑线/杂线，主体保留"""
@@ -183,15 +183,17 @@ def stage_actions():
         a[:,:,1] = np.where(spill, np.maximum(r,b), g)
         return thin_line_removal(Image.fromarray(a.astype(np.uint8)))
     jobs = [
-        # (名称, 视频, fps, 目标高度, 抠图方式, 是否导出音频, 起始秒, 时长秒, 源预裁剪比例(l,t,r,b)或None)
-        ("dance", os.path.join(SRC, "mat_dance43.mp4"), 15, 600, "green", True, None, None, None),
-        ("jump",  os.path.join(SRC, "jump.mp4"),        30, 560, "green", True, None, None, None),
-        ("turn",  os.path.join(SRC, "mat_turn.mp4"),   15, 600, "green", False, None, None, None),
-        ("hungry",os.path.join(SRC, "mat_qq.mp4"),     30, 620, "rembg", True, 35.4, 1.8, (0.0, 0.0, 1.0, 0.92)),
-        ("mic",   os.path.join(SRC, "mat_sing58.mp4"), 12, 620, "rembg", False, 1.25, 20.0, None),
-        ("closeup", os.path.join(SRC, "mat_long.mp4"), 12, 620, "green", False, 60.0, 20.0, None),
-        ("yuai",  os.path.join(SRC, "mat_yuai87.mp4"), 12, 620, "rembg", False, 44.0, 16.0, None),
+        # (名称, 视频, fps, 目标高度, 抠图方式, 是否导出音频, 起始秒, 时长秒, 源预裁剪比例(l,t,r,b)或None, 音频起始秒, 音频时长秒)
+        ("dance", os.path.join(SRC, "mat_dance43.mp4"), 15, 600, "green", True, None, None, None, None, None),
+        ("jump",  os.path.join(SRC, "jump.mp4"),        30, 560, "green", True, None, None, None, None, None),
+        ("turn",  os.path.join(SRC, "mat_turn.mp4"),   15, 600, "green", False, None, None, None, None, None),
+        ("hungry",os.path.join(SRC, "mat_qq.mp4"),     30, 620, "rembg", True, 35.4, 1.8, (0.0, 0.0, 1.0, 0.92), 37.15, 1.5),
+        ("mic",   os.path.join(SRC, "mat_sing58.mp4"), 12, 620, "rembg", False, 1.25, 20.0, None, None, None),
+        ("closeup", os.path.join(SRC, "mat_long.mp4"), 12, 620, "green", False, 60.0, 20.0, None, None, None),
+        ("yuai",  os.path.join(SRC, "mat_yuai87.mp4"), 12, 620, "rembg", False, 44.0, 16.0, None, None, None),
+        ("qn",    os.path.join(SRC, "mat_qn_BV1ih.mp4"), 12, 620, "rembg", False, 62.0, 20.0, (0.18, 0.26, 0.80, 1.0), None, None),
     ]
+    if only: jobs = [j for j in jobs if j[0] in only]
     for name, video, fps, target_h, mode, want_wav, ss, dur, crop, a_ss, a_dur in jobs:
         if not os.path.exists(video):
             print("跳过(缺视频):", name, flush=True); continue
@@ -343,7 +345,7 @@ def stage_pack():
     dance_n, jump_n = dircount("dance"), dircount("jump")
     # 动作序列元数据：帧数不足 2 的文件夹自动跳过（删除动作后无需改代码）
     seqs_meta = {}
-    for seq_name, seq_fps in (("dance", 15), ("jump", 30), ("mic", 12), ("turn", 15), ("closeup", 12), ("yuai", 12), ("hungry", 30)):
+    for seq_name, seq_fps in (("dance", 15), ("jump", 30), ("mic", 12), ("turn", 15), ("closeup", 12), ("yuai", 12), ("qn", 12), ("pyj", 15), ("hungry", 30)):
         n_ = dircount(seq_name)
         if n_ >= 2:
             seqs_meta[seq_name] = {"frames": n_, "fps": seq_fps}
@@ -375,6 +377,7 @@ def stage_pack():
         "closeup": seqs_meta.get("closeup"),
         "yuai": seqs_meta.get("yuai"),
         "qn": seqs_meta.get("qn"),
+        "pyj": seqs_meta.get("pyj"),
         "hungry": seqs_meta.get("hungry"),
         # 每首歌绑定专属唱歌视觉：歌名→序列（用户可改）
         "songSeqs": {
@@ -383,6 +386,8 @@ def stage_pack():
             "just two of us.m4a": "closeup",
             "L的小曲.m4a": "sing",
             "雨爱.m4a": "yuai",
+            "去年夏天.m4a": "qn",
+            "朋友的酒.m4a": "pyj",
         },
     }
     nwp = os.path.join(ROOT, "凑企鹅", "素材.nwp")
@@ -409,7 +414,7 @@ def stage_pack():
         mic_n = dircount("mic")
         for i in range(mic_n):
             z.write(os.path.join(OUT, "mic", f"{i:04d}.png"), f"mic/{i:04d}.png")
-        for extra in ("turn", "closeup", "yuai", "hungry"):
+        for extra in ("turn", "closeup", "yuai", "qn", "pyj", "hungry"):
             n_ = dircount(extra)
             for i in range(n_):
                 z.write(os.path.join(OUT, extra, f"{i:04d}.png"), f"{extra}/{i:04d}.png")
@@ -427,5 +432,6 @@ if __name__ == "__main__":
     stage = sys.argv[1] if len(sys.argv) > 1 else ""
     {"idle": stage_idle, "laugh": stage_laugh, "sing": stage_sing, "pack": stage_pack,
      "postclean": stage_postclean, "blink": stage_blink, "actions": stage_actions,
+     "actions_only": lambda: stage_actions(tuple(sys.argv[2:])),
      "laugh_audit": lambda: stage_laugh(only_audit=True),
      "sing_audit": lambda: stage_sing(only_audit=True)}[stage]()
