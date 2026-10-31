@@ -15,7 +15,7 @@
 
 杀毒软件提示时选"允许 / 信任"即可（无签名小工具的正常待遇）。
 
-包内自带五首 AI 高松灯翻唱（billie jean / cry for me / just two of us / 雨爱 / L的小曲），
+包内自带六首 AI 高松灯翻唱（billie jean / cry for me / just two of us / 雨爱 / L的小曲 / 去年夏天），
 每首都有专属演出画面。想换歌就把你的 mp3 / m4a 丢进 `music` 文件夹，重启桌宠即可。
 
 ## 📖 全部玩法
