@@ -855,6 +855,7 @@ namespace NaiwaDesktop
         {
             if(HiddenForFullscreen||testing)return;
             if(name=="sing"&&!music.HasSongs){ShowGreetingText("把喜欢的歌放进 music 文件夹，重启后我就会唱啦……");return;}
+            if(name!="sing"&&!assets.HasAction(name))return; // 素材包未提供的动作优雅忽略（多桌宠共用代码）
             if(Motion.ActionMode==name)return;
             StopActionAudio(Motion.ActionMode);
             if(Motion.Playing)StopLaugh();
@@ -897,9 +898,9 @@ namespace NaiwaDesktop
             GreetingBubble bubble=new GreetingBubble(text,ContentRect(),seconds);
             bubble.Show(this);
         }
-        // 开机自启动：HKCU Run 键，无需管理员权限
+        // 开机自启动：HKCU Run 键，无需管理员权限；键名按 PetId 区分多桌宠
         private const string RunKeyPath=@"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string RunValueName="tomorin-pet";
+        private string RunValueName{get{return assets.PetId+"-pet";}}
         internal bool AutoStart
         {
             get{try{using(RegistryKey k=Registry.CurrentUser.OpenSubKey(RunKeyPath))return k!=null&&k.GetValue(RunValueName)!=null;}catch{return false;}}

@@ -28,11 +28,14 @@ namespace NaiwaDesktop
                     if(n<2){Console.WriteLine("  "+bank+": 无序列，跳过");continue;}
                     Check(bank,n,i=>a.ActionFrame(bank,i),a);
                 }
-                // 冷读延迟：顺序解码 dance 前 60 帧（LRU 必然逐帧冷读），对比 15fps 的 66ms 帧预算
-                Stopwatch sw=Stopwatch.StartNew();
-                for(int i=0;i<60;i++)a.ActionFrame("dance",i);
-                sw.Stop();
-                Console.WriteLine("dance 顺序冷读平均 {0:F1} ms/帧（预算 66ms）",sw.Elapsed.TotalMilliseconds/60);
+                // 冷读延迟：顺序解码前 60 帧（LRU 必然逐帧冷读）
+                if(a.HasAction("dance"))
+                {
+                    Stopwatch sw=Stopwatch.StartNew();
+                    for(int i=0;i<60;i++)a.ActionFrame("dance",i);
+                    sw.Stop();
+                    Console.WriteLine("dance 顺序冷读平均 {0:F1} ms/帧（预算 66ms）",sw.Elapsed.TotalMilliseconds/60);
+                }
                 Console.WriteLine("ALL BANKS OK");
             }
         }
