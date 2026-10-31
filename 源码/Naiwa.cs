@@ -588,41 +588,6 @@ namespace NaiwaDesktop
     // ============================================================
     // MusicPlayer —— WPF MediaPlayer 包装（独立 STA 线程，直接播 m4a/mp3/wav）
     // ============================================================
-    // 双击演出音频：WPF MediaPlayer，支持 m4a/mp3 等可选曲目（minimal 桌宠用）
-    internal sealed class LaughAudio
-    {
-        private Thread thread;
-        private System.Windows.Media.MediaPlayer player;
-        private System.Windows.Threading.Dispatcher dispatcher;
-        internal bool IsPlaying{get;private set;}
-        internal void Play(string file)
-        {
-            if(dispatcher==null)
-            {
-                using(var ready=new System.Threading.ManualResetEvent(false))
-                {
-                    thread=new Thread(delegate(){
-                        player=new System.Windows.Media.MediaPlayer{Volume=.9};
-                        dispatcher=System.Windows.Threading.Dispatcher.CurrentDispatcher;
-                        ready.Set();
-                        System.Windows.Threading.Dispatcher.Run();
-                    });
-                    thread.SetApartmentState(ApartmentState.STA);thread.IsBackground=true;thread.Start();
-                    ready.WaitOne();
-                }
-            }
-            IsPlaying=true;
-            var d=dispatcher;d.BeginInvoke((Action)delegate{try{player.Open(new Uri(file));player.Play();}catch{}});
-        }
-        internal void Stop()
-        {
-            if(dispatcher==null)return;
-            IsPlaying=false;
-            var d=dispatcher;d.BeginInvoke((Action)delegate{try{player.Stop();}catch{}});
-        }
-        internal void Shutdown(){try{if(dispatcher!=null)dispatcher.BeginInvoke((Action)delegate{dispatcher.InvokeShutdown();});}catch{}}
-    }
-
     internal sealed class MusicPlayer:IDisposable
     {
         private Thread thread;
@@ -764,12 +729,10 @@ namespace NaiwaDesktop
         private readonly System.Windows.Forms.Timer timer=new System.Windows.Forms.Timer();
         private readonly LayeredSurface surface=new LayeredSurface();
         private readonly SoundPlayer sound;
-    private readonly LaughAudio laughAudio=new LaughAudio();
         private readonly Icon petIcon;
         private readonly ContextMenuStrip menu;
         private readonly NotifyIcon tray;
     private ToolStripMenuItem soundItem,topItem,stopItem,fullscreenItem,singItem,randomItem,autostartItem,bgmItem;
-    private bool bgmHeldForLaugh;
     private readonly SoundPlayer danceSound,jumpSound,hungrySound;
     private readonly Random rng=new Random();
     private double lastPop;
@@ -841,7 +804,6 @@ namespace NaiwaDesktop
             {
                 result.Items.Add("Q弹一下（双击）",null,delegate{Laugh();});
                 bgmItem=new ToolStripMenuItem("♪ 朋友的酒",null,delegate{ToggleBgm();});result.Items.Add(bgmItem);
-                ToolStripMenuItem audioMenu=new ToolStripMenuItem("音频");
                 try{
                     string dir=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"music");
                     if(Directory.Exists(dir))
@@ -849,17 +811,21 @@ namespace NaiwaDesktop
                         string[] exts={".mp3",".m4a",".wav",".flac",".ogg"};
                         List<string> pool=new List<string>();
                         foreach(string f in Directory.GetFiles(dir)){if(Array.IndexOf(exts,Path.GetExtension(f).ToLower())>=0)pool.Add(f);}
-                        pool.Sort(StringComparer.OrdinalIgnoreCase);
-                        foreach(string f in pool)
+                        if(pool.Count>1)  // 只有一首时不显示音频子菜单，避免重复项
                         {
-                            string file=f;
-                            ToolStripMenuItem entry=new ToolStripMenuItem(Path.GetFileNameWithoutExtension(file),null,delegate{settings.LaughAudio=Path.GetFileName(file);Save();UpdateMenu();});
-                            entry.Tag=Path.GetFileName(file);
-                            audioMenu.DropDownItems.Add(entry);
+                            pool.Sort(StringComparer.OrdinalIgnoreCase);
+                            ToolStripMenuItem audioMenu=new ToolStripMenuItem("音频");
+                            foreach(string f in pool)
+                            {
+                                string file=f;
+                                ToolStripMenuItem entry=new ToolStripMenuItem(Path.GetFileNameWithoutExtension(file),null,delegate{settings.LaughAudio=Path.GetFileName(file);Save();if(music.IsPlaying)music.Play(SelectedSongIndex());UpdateMenu();});
+                                entry.Tag=Path.GetFileName(file);
+                                audioMenu.DropDownItems.Add(entry);
+                            }
+                            result.Items.Add(audioMenu);
                         }
                     }
                 }catch{}
-                result.Items.Add(audioMenu);
                 result.Items.Add(new ToolStripSeparator());
                 result.Items.Add("退出"+assets.PetName,null,delegate{Close();});
                 result.Opening+=delegate{menuOpen=true;UpdateMenu();};result.Closed+=delegate{menuOpen=false;SetNoActivate(false);};
@@ -891,7 +857,12 @@ namespace NaiwaDesktop
         private void UpdateMenu()
         {
             if(menu==null)return;
-            if(bgmItem!=null)SetToggleMark(bgmItem,music.IsPlaying);
+            if(bgmItem!=null)
+            {
+                string t=SelectedTrackName();
+                bgmItem.Text="♪ "+(t==null?"朋友的酒":Path.GetFileNameWithoutExtension(t));
+                SetToggleMark(bgmItem,music.IsPlaying);
+            }
             if(!assets.Minimal)
             {
                 SetToggleMark(soundItem,settings.Sound);soundItem.Enabled=sound!=null;SetToggleMark(topItem,TopMost);
@@ -924,16 +895,11 @@ namespace NaiwaDesktop
             if(HiddenForFullscreen)return false;
             if(Motion.Acting)StopAction();
             if(!Motion.Laugh(Now))return false;
-            if(assets.Minimal)
-            {
-                string f=ResolveLaughAudio();
-                if(f!=null){laughAudio.Play(f);if(music.IsPlaying){music.TogglePause();bgmHeldForLaugh=true;}}
-            }
-            else if(sound!=null&&settings.Sound&&!testing)sound.Play();
+            if(!assets.Minimal&&sound!=null&&settings.Sound&&!testing)sound.Play();
             RenderNow(true);return true;
         }
-        // 双击音频选择：设置指定 → 《朋友的酒》→ 文件夹第一个
-        private string ResolveLaughAudio()
+        // 背景音乐曲目：设置指定 → 《朋友的酒》→ 文件夹第一个
+        private string SelectedTrackName()
         {
             try{
                 string dir=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"music");
@@ -943,16 +909,22 @@ namespace NaiwaDesktop
                 foreach(string f in Directory.GetFiles(dir)){if(Array.IndexOf(exts,Path.GetExtension(f).ToLower())>=0)pool.Add(f);}
                 if(pool.Count==0)return null;
                 pool.Sort(StringComparer.OrdinalIgnoreCase);
-                foreach(string f in pool)if(string.Equals(Path.GetFileName(f),settings.LaughAudio,StringComparison.OrdinalIgnoreCase))return f;
-                foreach(string f in pool)if(Path.GetFileName(f)=="朋友的酒.m4a")return f;
-                return pool[0];
+                foreach(string f in pool)if(string.Equals(Path.GetFileName(f),settings.LaughAudio,StringComparison.OrdinalIgnoreCase))return Path.GetFileName(f);
+                foreach(string f in pool)if(Path.GetFileName(f)=="朋友的酒.m4a")return Path.GetFileName(f);
+                return Path.GetFileName(pool[0]);
             }catch{return null;}
         }
-        internal void StopLaugh(){Motion.Stop();if(sound!=null)sound.Stop();if(assets.Minimal)laughAudio.Stop();RenderNow(true);}
+        private int SelectedSongIndex()
+        {
+            string name=SelectedTrackName();
+            for(int i=0;i<music.Songs.Count;i++)if(string.Equals(Path.GetFileName(music.Songs[i]),name,StringComparison.OrdinalIgnoreCase))return i;
+            return music.Index;
+        }
+        internal void StopLaugh(){Motion.Stop();if(sound!=null)sound.Stop();RenderNow(true);}
         private void ToggleBgm()
         {
             if(!music.HasSongs)return;
-            if(!music.IsPlaying&&!music.IsPaused)music.Play(0);
+            if(!music.IsPlaying&&!music.IsPaused)music.Play(SelectedSongIndex());
             else music.TogglePause();
             UpdateMenu();
         }
@@ -1100,8 +1072,6 @@ namespace NaiwaDesktop
             Point p=PointToClient(Cursor.Position);bool over=!menuOpen&&surface.Hit(p.X,p.Y);
             bool wasPlaying=Motion.Playing;Motion.Update(Now,over,assets.Duration,assets.BlinkCount/assets.BlinkFps);
             if(wasPlaying&&!Motion.Playing&&sound!=null)sound.Stop();
-            if(assets.Minimal)laughAudio.Stop();
-            if(bgmHeldForLaugh&&!Motion.Playing){bgmHeldForLaugh=false;if(assets.Minimal&&!music.IsPlaying&&!music.IsPaused)music.TogglePause();}
             RenderNow(false);
         }
         internal void RenderNow(bool force)
@@ -1137,7 +1107,7 @@ namespace NaiwaDesktop
             HiddenForFullscreen=hidden;
             if(hidden)
             {
-                gesture.Cancel();Capture=false;Motion.Suspend(Now);if(sound!=null)sound.Stop();if(assets.Minimal)laughAudio.Stop();
+                gesture.Cancel();Capture=false;Motion.Suspend(Now);if(sound!=null)sound.Stop();
                 physics.Stop();StopAction();
                 if(assets.Minimal&&music.IsPlaying)music.TogglePause();
                 Hide();timer.Interval=150;
