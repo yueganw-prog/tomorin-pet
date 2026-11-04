@@ -31,6 +31,11 @@ def extract(ss, dur, out):
         arr = np.array(im)
         u = np.array(pp.remove(im, session=pp.SESSION).convert('RGBA'))[:, :, 3].astype(np.float32) / 255.0
         m = u > 0.4
+        # 字幕笔画清除：开运算抹掉细于 ~8px 的白色字幕笔画（浣熊四肢远宽于此）
+        disk4 = np.zeros((9, 9), bool)
+        dy, dx = np.mgrid[-4:5, -4:5]
+        disk4[dy*dy + dx*dx <= 16] = True
+        m = ndimage.binary_opening(m, structure=disk4)
         lab, n = ndimage.label(m)
         keep = np.zeros_like(m)
         if n > 0:
