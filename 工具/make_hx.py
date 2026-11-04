@@ -13,8 +13,8 @@ spec.loader.exec_module(pp)
 SRC_V = os.path.join(pp.SRC, 'mat_hx_dance.mp4')
 PET_DIR = os.path.join(pp.ROOT, '浣熊桌宠')
 ASSET = os.path.join(PET_DIR, '资产')
-SS_LAUGH, DUR_LAUGH = 25.0, 20.0
-SS_SING, DUR_SING = 70.0, 20.0
+SS_LAUGH, DUR_LAUGH = 195.5, 20.0
+SS_SING, DUR_SING = 195.5, 20.0
 FPS = 15
 CROP = (0.24, 0.05, 0.68, 0.97)  # l,t,r,b —— 避开左侧水印与底部字幕，保持人物比例
 
