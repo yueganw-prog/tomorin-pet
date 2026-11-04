@@ -140,6 +140,7 @@ namespace NaiwaDesktop
         // Character-specific hit/transform regions, declared by the asset package (Naiwa artwork values are the defaults).
         internal readonly string PetName,PetId;
         internal bool Minimal; // 极简模式：只保留动作与背景音乐（菜单/说话/控制栏全部裁剪）
+        internal readonly string LaughLabel; // 极简菜单第一项文案
         internal readonly double PokeX,PokeY,PokeRx,PokeRy;
         internal readonly double WarpTop,WarpBottom,WarpRx,WarpRy;
         internal readonly int IconX,IconY,IconW,IconH;
@@ -175,6 +176,7 @@ namespace NaiwaDesktop
                 if(Width<1||Height<1||Width>1024||Height>1024||Count<1||Count>2000||Fps<1||Fps>120||EyeCount<2||EyeCount>60)throw new InvalidDataException("素材信息无效");
                 PetName=Str(meta,"name","奶蛙");PetId=Str(meta,"id","Source.v1");
                 Minimal=Num(meta,"minimal",0)>0.5;
+                LaughLabel=Str(meta,"laughLabel","来一段（双击）");
                 Dictionary<string,object> poke=Dict(meta,"poke"),warp=Dict(meta,"warp"),icon=Dict(meta,"icon");
                 PokeX=Num(poke,"x",Width*.5);PokeY=Num(poke,"y",Height*.573);PokeRx=Num(poke,"rx",Width*.24);PokeRy=Num(poke,"ry",Height*.185);
                 WarpTop=Num(warp,"top",Height*.285);WarpBottom=Num(warp,"bottom",Height*.815);WarpRx=Num(warp,"rx",Width*.333);WarpRy=Num(warp,"ry",Height*.196);
@@ -814,7 +816,7 @@ namespace NaiwaDesktop
             result.Items.Add(new ToolStripMenuItem(assets.PetName+" · 桌宠陪伴") {Enabled=false});result.Items.Add(new ToolStripSeparator());
             if(assets.Minimal)
             {
-                result.Items.Add("Q弹一下（双击）",null,delegate{Laugh();});
+                result.Items.Add(assets.LaughLabel,null,delegate{Laugh();});
                 bgmItem=new ToolStripMenuItem("♪ 朋友的酒",null,delegate{ToggleBgm();});result.Items.Add(bgmItem);
                 try{
                     string dir=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"music");
