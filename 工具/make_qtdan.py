@@ -87,13 +87,13 @@ def extract(ss, dur, out):
     return len(keyed)
 
 t0 = time.time()
-print('== sing 段抠像 (t=%g-%gs) ==' % (SS_SING, SS_SING+DUR_SING), flush=True)
-sing_n = extract(SS_SING, DUR_SING, os.path.join(ASSET, 'sing'))
-print('== laugh 段：复用 资产/pyj (%d 帧) ==' % len(glob.glob(os.path.join(pp.OUT, 'pyj', '*.png'))), flush=True)
-laugh_n = len(glob.glob(os.path.join(pp.OUT, 'pyj', '*.png')))
-os.makedirs(os.path.join(ASSET, 'laugh'), exist_ok=True)
+print('== laugh 段抠像 (t=%g-%gs) ==' % (SS_SING, SS_SING+DUR_SING), flush=True)
+laugh_n = extract(SS_SING, DUR_SING, os.path.join(ASSET, 'laugh'))
+print('== sing 段（动态待机）：复用 资产/pyj (%d 帧) ==' % len(glob.glob(os.path.join(pp.OUT, 'pyj', '*.png'))), flush=True)
+sing_n = len(glob.glob(os.path.join(pp.OUT, 'pyj', '*.png')))
+os.makedirs(os.path.join(ASSET, 'sing'), exist_ok=True)
 for f in glob.glob(os.path.join(pp.OUT, 'pyj', '*.png')):
-    shutil.copyfile(f, os.path.join(ASSET, 'laugh', os.path.basename(f)))
+    shutil.copyfile(f, os.path.join(ASSET, 'sing', os.path.basename(f)))
 
 # idle + look + blink 占位（Q弹素材无眼神/眨眼差分，静态复用）
 idle = Image.open(os.path.join(ASSET, 'laugh', '0000.png'))
@@ -121,11 +121,12 @@ subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', os.path.join(pp.SRC, 'mat_p
 meta = {
     "width": 640, "height": 960, "fps": 15.0, "frames": laugh_n,
     "eyeFrames": 2, "blinkFrames": 2, "blinkFps": 15,
-    "name": "全员Q弹", "id": "qtan", "soundFile": "Q弹原声.wav",
+    "name": "全员Q弹", "id": "qtan", "soundFile": "Q弹原声.wav", "minimal": 1, "laughLabel": "Q弹一下（双击）",
     "poke": {"x": 445, "y": 760, "rx": 95, "ry": 85},
     "warp": {"top": 700, "bottom": 950, "rx": 260, "ry": 60},
     "icon": {"x": 350, "y": 640, "w": 200, "h": 200},
     "idleRect": {"x": 0.05, "y": 0.66, "w": 0.9, "h": 0.34},
+    "idleSeq": "sing",
     "sing": {"frames": sing_n, "fps": FPS},
     "songSeqs": {"朋友的酒.m4a": "sing"},
 }
