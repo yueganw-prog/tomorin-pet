@@ -85,6 +85,13 @@ namespace NaiwaDesktop
                 File.WriteAllText(args[1],"Found="+(h!=IntPtr.Zero)+"\r\nVisible="+Native.IsWindowVisible(h)+"\r\nBounds="+r.Left+","+r.Top+","+r.Right+","+r.Bottom+"\r\nState="+Native.SendMessage(h,Native.Status,IntPtr.Zero,IntPtr.Zero),Encoding.UTF8); return;
             }
             if(args.Length==1 && args[0]=="--quit") { Native.PostMessage(Native.FindWindow(null,Native.Title),0x10,IntPtr.Zero,IntPtr.Zero); return; }
+            // 家族模式：本目录下的子文件夹各含 素材.nwp → 单进程管理多只桌宠
+            {
+                List<string> memberDirs=new List<string>();
+                try{ foreach(string d in Directory.GetDirectories(AppDomain.CurrentDomain.BaseDirectory)) if(File.Exists(Path.Combine(d,"素材.nwp"))) memberDirs.Add(d); }catch{}
+                memberDirs.Sort(StringComparer.OrdinalIgnoreCase);
+                if(memberDirs.Count>=2){ FamilyApp.Run(memberDirs.ToArray()); return; }
+            }
             bool fresh;
             using(Mutex mutex=new Mutex(true,"Local\\"+Native.Title,out fresh))
             {
@@ -98,6 +105,132 @@ namespace NaiwaDesktop
         {
             try{Directory.CreateDirectory(Settings.Folder);File.AppendAllText(Path.Combine(Settings.Folder,"error.log"),DateTime.Now.ToString("s")+" "+e+Environment.NewLine);}catch{}
             MessageBox.Show("桌宠暂时没能启动，或刚才的操作出了点问题。请确认程序与素材文件在同一文件夹。\n\n"+e.Message,"桌宠",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        }
+    }
+
+    // 家族模式：单进程管理多只桌宠。托盘菜单逐个点亮/隐藏，隐藏即释放内存。
+    internal class FamilyMember{internal string Dir,Name,Id;}
+    internal static class FamilyApp
+    {
+        private static List<FamilyMember> members=new List<FamilyMember>();
+        private static Dictionary<string,PetWindow> windows=new Dictionary<string,PetWindow>();
+        private static Dictionary<string,Assets> assetsMap=new Dictionary<string,Assets>();
+        private static ContextMenuStrip trayMenu;
+        private static NotifyIcon tray;
+        private static ToolStripMenuItem autostartItem;
+        private static string IniPath;
+
+        internal static void Run(string[] memberDirs)
+        {
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s, System.UnhandledExceptionEventArgs e){
+                try{File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"family-error.log"),DateTime.Now.ToString("s")+" "+e.ExceptionObject+Environment.NewLine);}catch{}
+            };
+            Application.ThreadException += delegate(object s, System.Threading.ThreadExceptionEventArgs e){
+                try{File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"family-error.log"),DateTime.Now.ToString("s")+" UI: "+e.Exception+Environment.NewLine);}catch{}
+            };
+            Native.Title="NaiwaDesktopPet-family";
+            foreach(string d in memberDirs)
+            {
+                try{
+                    using(ZipArchive z=ZipFile.OpenRead(Path.Combine(d,"素材.nwp")))
+                    {
+                        var meta=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(new StreamReader(z.GetEntry("metadata.json").Open()).ReadToEnd());
+                        members.Add(new FamilyMember{Dir=d,Name=Convert.ToString(meta["name"]),Id=Convert.ToString(meta["id"])});
+                    }
+                }catch{}
+            }
+            if(members.Count==0)return;
+            IniPath=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"家族设置.ini");
+            Application.EnableVisualStyles();
+            trayMenu=new ContextMenuStrip{Font=new Font("Microsoft YaHei UI",10f),ShowImageMargin=false};
+            tray=new NotifyIcon{Text="奶蛙家族",Icon=SystemIcons.Shield,Visible=true};
+            tray.ContextMenuStrip=trayMenu;
+            BuildTrayMenu();
+            // 恢复上次的可见成员
+            firstRunVisible=new HashSet<string>(VisibleList());
+            foreach(string id in VisibleList()) Show(id);
+            firstRunVisible=null;
+            Application.Run();
+        }
+        private static List<string> VisibleList()
+        {
+            List<string> list=new List<string>();
+            try{ if(File.Exists(IniPath)) foreach(string l in File.ReadAllLines(IniPath)) if(l.StartsWith("visible=")) foreach(string id in l.Substring(8).Split(',')) if(id.Length>0) list.Add(id); }catch{}
+            if(list.Count==0) foreach(var m in members) list.Add(m.Id);
+            return list;
+        }
+        private static void SaveVisible()
+        {
+            try{
+                List<string> open=new List<string>();
+                foreach(var m in members) if(windows.ContainsKey(m.Id)&&windows[m.Id].Visible) open.Add(m.Id);
+                File.WriteAllLines(IniPath,new string[]{"visible="+string.Join(",",open)});
+            }catch{}
+        }
+        private static void BuildTrayMenu()
+        {
+            trayMenu.Items.Clear();
+            trayMenu.Items.Add(new ToolStripMenuItem("奶蛙家族"){Enabled=false});trayMenu.Items.Add(new ToolStripSeparator());
+            foreach(var m in members)
+            {
+                ToolStripMenuItem entry=new ToolStripMenuItem(m.Name,null,delegate{Toggle(m.Id);});
+                entry.Tag=m.Id;trayMenu.Items.Add(entry);
+            }
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("全部显示",null,delegate{foreach(var m in members)Show(m.Id);UpdateChecks();});
+            trayMenu.Items.Add("全部隐藏",null,delegate{foreach(var m in members)Hide(m.Id);UpdateChecks();SaveVisible();});
+            autostartItem=new ToolStripMenuItem("开机自启动",null,delegate{FamilyAutoStart=!FamilyAutoStart;UpdateChecks();});
+            trayMenu.Items.Add(autostartItem);
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("退出家族",null,delegate{SaveVisible();Application.Exit();});
+            trayMenu.Opening+=delegate{UpdateChecks();};
+        }
+        private static void UpdateChecks()
+        {
+            foreach(ToolStripItem it in trayMenu.Items)
+            {
+                ToolStripMenuItem p=it as ToolStripMenuItem;if(p==null||p.Tag==null)continue;
+                string id=Convert.ToString(p.Tag);
+                bool on=windows.ContainsKey(id)&&windows[id].Visible;
+                SetMark(p,on);
+            }
+            if(autostartItem!=null)SetMark(autostartItem,FamilyAutoStart);
+        }
+        private static void SetMark(ToolStripMenuItem item,bool on){item.Checked=on;}
+        private static bool FamilyAutoStart
+        {
+            get{try{using(RegistryKey k=Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))return k!=null&&k.GetValue("nai-family")!=null;}catch{return false;}}
+            set{try{using(RegistryKey k=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")){if(value)k.SetValue("nai-family","\""+Application.ExecutablePath+"\" --family");else k.DeleteValue("nai-family",false);}}catch{}}
+        }
+        private static void Toggle(string id){if(windows.ContainsKey(id)&&windows[id].Visible)Hide(id);else Show(id);UpdateChecks();SaveVisible();}
+        private static HashSet<string> firstRunVisible;
+        private static void Show(string id)
+        {
+            if(windows.ContainsKey(id)&&windows[id].Visible)return;
+            FamilyMember m=members.Find(x=>x.Id==id);if(m==null)return;
+            if(!assetsMap.ContainsKey(id))assetsMap[id]=new Assets(m.Dir);
+            if(!windows.ContainsKey(id)||windows[id].IsDisposed)
+            {
+                PetWindow w=new PetWindow(assetsMap[id],false);
+                w.FormClosed+=delegate{windows.Remove(id);};
+                windows[id]=w;
+            }
+            windows[id].Show();
+            // 首次出现的成员错开排布，避免全部叠在同一角落
+            if(firstRunVisible!=null&&!firstRunVisible.Contains(id))
+            {
+                int k=members.FindIndex(x=>x.Id==id);
+                if(k>=0){var w=windows[id];
+                w.Location=new Point(Math.Max(0,w.Location.X-480+(k%6)*110),Math.Max(60,w.Location.Y-660-(k/6)*60));}
+            }
+        }
+        private static void Hide(string id)
+        {
+            if(!windows.ContainsKey(id))return;
+            PetWindow w=windows[id];
+            windows.Remove(id);
+            w.Dispose();
+            if(assetsMap.ContainsKey(id)){assetsMap[id].Dispose();assetsMap.Remove(id);}
         }
     }
 
