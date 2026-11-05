@@ -78,7 +78,7 @@ def build(pid, name, box):
     pet_dir = os.path.join(ROOT_PETS, name + '桌宠')
     asset = os.path.join(pet_dir, '资产')
     roster = Image.open(ROSTER).convert('RGB')
-    cut = trim(cutout(roster, box))
+    cut = trim(Image.open(os.path.join(r'C:/Users/admin/Desktop/MyPet/素材-通透/family_cutouts', f'{name}.png')).convert('RGBA'))
     os.makedirs(asset, exist_ok=True)
     sc = min(560/cut.width, 620/cut.height, 3.0)
     iw, ih = round(cut.width*sc), round(cut.height*sc)
