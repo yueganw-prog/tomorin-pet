@@ -14,10 +14,10 @@ spec.loader.exec_module(pp)
 SRC_V = os.path.join(pp.SRC, 'mat_fam_tree.mp4')
 # (PetId, 名称, 片段前缀, 起始秒, 时长秒)
 MEMBERS = [
-    ('naishu', '奶鼠', 'shu', 32.75, 1.0, 228, 0.14, False),
-    ('nainiu', '奶牛', 'niu', 34.55, 0.85, 228, 0.14, False),
+    ('naishu', '奶鼠', 'shu', 33.0, 0.65, 228, 0.14, False),
+    ('nainiu', '奶牛', 'niu', 34.55, 0.62, 228, 0.14, False),
     ('naihu',  '奶虎', 'hu',  36.35, 0.9, 228, 0.14),
-    ('naitu',  '奶兔', 'tu',  40.9, 1.1, 228, 0.14, False, 0.90),
+    ('naitu',  '奶兔', 'tu',  40.9, 0.9, 228, 0.14, False, 0.90),
     ('nailong','奶龙', 'long', 1.6, 1.5, 140, 0.20, True),
 ]
 ONLY = sys.argv[1:] if len(sys.argv) > 1 else None
@@ -30,9 +30,33 @@ def build_member(pid, name, prefix, ss, dur, w_lum=228, w_sat=0.14, aggressive=F
            '-r', str(15), '-f', 'image2', os.path.join(tmp, '%05d.png')]
     subprocess.run(cmd, capture_output=True, check=True)
     files = sorted(glob.glob(os.path.join(tmp, '*.png')))
+    # 滚动对齐：族谱模板内容持续上滚，逐帧按最大非白色块质心平移（弹跳保留，漂移抵消）
+    centers = []
+    for f0 in files:
+        a0 = np.array(Image.open(f0).convert('RGB'))
+        r0, g0, b0 = a0[...,0].astype(int), a0[...,1].astype(int), a0[...,2].astype(int)
+        lum0 = (r0+g0+b0)/3.0
+        mx0 = np.maximum(np.maximum(r0,g0),b0); mn0 = np.minimum(np.minimum(r0,g0),b0)
+        sat0 = np.where(mx0>0, (mx0-mn0)/np.maximum(mx0,1), 0)
+        green0 = (g0 > r0 + 30) & (g0 > b0 + 30) & (g0 > 110)
+        nw = ~((lum0 > 225) & (sat0 < 0.15)) & ~green0
+        lab0, n0 = ndimage.label(nw)
+        if n0 > 0:
+            sz0 = np.array(ndimage.sum_labels(np.ones_like(lab0), lab0, np.arange(1, n0+1)), dtype=np.float64)
+            j0 = int(np.argmax(sz0))
+            ys0, xs0 = np.where(lab0 == j0+1)
+            centers.append((xs0.mean(), ys0.mean()))
+        else:
+            centers.append((a0.shape[1]/2, a0.shape[0]/2))
+    ref = centers[len(centers)//2]
     keyed = []
-    for f in files:
-        arr = np.array(Image.open(f).convert('RGB'))
+    for i, f in enumerate(files):
+        im0 = Image.open(f).convert('RGB')
+        dx = max(-30, min(30, round(ref[0]-centers[i][0])))
+        dy = max(-30, min(30, round(ref[1]-centers[i][1])))
+        aligned = Image.new('RGB', im0.size, (255,255,255))
+        aligned.paste(im0, (dx, dy))
+        arr = np.array(aligned)
         H, W = arr.shape[:2]
         r_, g_, b_ = arr[..., 0].astype(int), arr[..., 1].astype(int), arr[..., 2].astype(int)
         lum = (r_ + g_ + b_) / 3.0
